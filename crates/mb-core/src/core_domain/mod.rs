@@ -1,4 +1,5 @@
 mod auth;
+pub mod cache_router;
 mod canonical;
 mod error;
 mod health;
@@ -8,6 +9,7 @@ mod router;
 mod types;
 
 pub use auth::*;
+pub use cache_router::*;
 pub use canonical::*;
 pub use error::*;
 pub use health::*;
