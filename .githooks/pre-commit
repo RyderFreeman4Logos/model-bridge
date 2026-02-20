@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Git pre-commit hook: block direct commits to main.
+# Install: git config core.hooksPath .githooks
+set -euo pipefail
+
+BRANCH=$(git branch --show-current 2>/dev/null || echo "detached")
+
+if [ "$BRANCH" = "main" ]; then
+  cat >&2 <<'EOF'
+ERROR: Direct commits to 'main' are not allowed.
+
+Create a feature branch first:
+  git checkout -b feat/<description>
+  git checkout -b fix/<description>
+  git checkout -b refactor/<description>
+
+Then commit on the feature branch and create a PR.
+EOF
+  exit 1
+fi
