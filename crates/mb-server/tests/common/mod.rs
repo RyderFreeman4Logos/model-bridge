@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use axum::body::Bytes;
 use axum::extract::State;
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use tokio::sync::RwLock;
@@ -14,7 +14,7 @@ use mb_core::core::{BackendState, CacheAffinityMap, LatencyMs, QuotaTracker};
 use mb_server::bootstrap::CacheConfig;
 use mb_server::config::{
     AllowedModelsConfig, AppConfig, BackendConfig, BackendSpecConfig, ClientConfig, HealthConfig,
-    LoggingConfig, RoutingConfig, ServerConfig,
+    LoggingConfig, RoutingConfig, RoutingStrategyConfig, ServerConfig,
 };
 use mb_server::handler::{AppState, BackendMeta};
 use mb_server::inbound::InboundAdapterRegistry;
@@ -24,10 +24,15 @@ use mb_server::outbound::OutboundAdapterRegistry;
 // MockBackendServer — configurable mock that mimics an LLM backend
 // ---------------------------------------------------------------------------
 
-struct MockConfig {
-    response_body: String,
-    status_code: u16,
-    delay_ms: u64,
+enum MockMode {
+    Json {
+        body: String,
+        status: u16,
+        delay_ms: u64,
+    },
+    Sse {
+        body: String,
+    },
 }
 
 pub struct MockBackendServer {
@@ -41,16 +46,31 @@ impl MockBackendServer {
     }
 
     pub async fn start_with_options(response_body: &str, status: u16, delay_ms: u64) -> Self {
-        let config = Arc::new(MockConfig {
-            response_body: response_body.to_owned(),
-            status_code: status,
+        let mode = Arc::new(MockMode::Json {
+            body: response_body.to_owned(),
+            status,
             delay_ms,
         });
+        Self::start_server(mode).await
+    }
 
+    /// Start a mock that returns SSE-formatted streaming events.
+    pub async fn start_sse(events: &[&str]) -> Self {
+        let sse_body: String = events
+            .iter()
+            .map(|e| format!("data: {e}\n\n"))
+            .collect::<String>()
+            + "data: [DONE]\n\n";
+
+        let mode = Arc::new(MockMode::Sse { body: sse_body });
+        Self::start_server(mode).await
+    }
+
+    async fn start_server(mode: Arc<MockMode>) -> Self {
         let app = axum::Router::new()
-            .route("/v1/chat/completions", post(mock_completion_handler))
+            .route("/v1/chat/completions", post(mock_handler))
             .route("/v1/models", get(mock_models_handler))
-            .with_state(config);
+            .with_state(mode);
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
@@ -78,20 +98,31 @@ impl Drop for MockBackendServer {
     }
 }
 
-async fn mock_completion_handler(State(config): State<Arc<MockConfig>>, _body: Bytes) -> Response {
-    if config.delay_ms > 0 {
-        tokio::time::sleep(std::time::Duration::from_millis(config.delay_ms)).await;
+async fn mock_handler(State(mode): State<Arc<MockMode>>, _body: Bytes) -> Response {
+    match mode.as_ref() {
+        MockMode::Json {
+            body,
+            status,
+            delay_ms,
+        } => {
+            if *delay_ms > 0 {
+                tokio::time::sleep(std::time::Duration::from_millis(*delay_ms)).await;
+            }
+            let status = StatusCode::from_u16(*status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+            (
+                status,
+                [(axum::http::header::CONTENT_TYPE, "application/json")],
+                body.clone(),
+            )
+                .into_response()
+        }
+        MockMode::Sse { body } => (
+            StatusCode::OK,
+            [(axum::http::header::CONTENT_TYPE, "text/event-stream")],
+            body.clone(),
+        )
+            .into_response(),
     }
-
-    let status =
-        StatusCode::from_u16(config.status_code).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-
-    (
-        status,
-        [(axum::http::header::CONTENT_TYPE, "application/json")],
-        config.response_body.clone(),
-    )
-        .into_response()
 }
 
 async fn mock_models_handler() -> Response {
@@ -99,8 +130,54 @@ async fn mock_models_handler() -> Response {
 }
 
 // ---------------------------------------------------------------------------
+// Stream-aware dispatch handler for tests
+// ---------------------------------------------------------------------------
+
+async fn dispatch_handler(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&body) {
+        if json
+            .get("stream")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        {
+            return mb_server::stream_handler::handle_completion_stream(
+                State(state),
+                headers,
+                body,
+            )
+            .await;
+        }
+    }
+    mb_server::handler::handle_completion(State(state), headers, body).await
+}
+
+// ---------------------------------------------------------------------------
 // TestGateway — starts a real mb gateway against mock backends
 // ---------------------------------------------------------------------------
+
+pub struct TestGatewayOptions {
+    pub mark_healthy: bool,
+    pub rate_limit_rpm: u32,
+    pub routing_strategy: RoutingStrategyConfig,
+    pub enable_stream_dispatch: bool,
+    pub cache_aware: bool,
+}
+
+impl Default for TestGatewayOptions {
+    fn default() -> Self {
+        Self {
+            mark_healthy: true,
+            rate_limit_rpm: 60,
+            routing_strategy: RoutingStrategyConfig::LeastLoaded,
+            enable_stream_dispatch: false,
+            cache_aware: true,
+        }
+    }
+}
 
 pub struct TestGateway {
     pub addr: SocketAddr,
@@ -108,22 +185,21 @@ pub struct TestGateway {
 }
 
 impl TestGateway {
-    /// Start a gateway with one mock backend and one client.
+    /// Start a gateway with one mock backend and one client (defaults).
     pub async fn start_simple(mock_url: &str) -> Self {
         Self::start(
             &[(mock_url.to_owned(), vec![TEST_MODEL.to_owned()])],
             &[(TEST_CLIENT_ID, TEST_API_KEY, vec![TEST_MODEL.to_owned()])],
+            TestGatewayOptions::default(),
         )
         .await
     }
 
-    /// Start a gateway with configurable backends and clients.
-    ///
-    /// `mock_urls`: `(base_url, models)` tuples for each backend.
-    /// `api_keys`: `(client_id, api_key, allowed_models)` tuples for each client.
+    /// Start a gateway with configurable backends, clients, and options.
     pub async fn start(
         mock_urls: &[(String, Vec<String>)],
         api_keys: &[(&str, &str, Vec<String>)],
+        options: TestGatewayOptions,
     ) -> Self {
         let clients: Vec<ClientConfig> = api_keys
             .iter()
@@ -131,7 +207,7 @@ impl TestGateway {
                 id: id.to_string(),
                 api_key: key.to_string(),
                 allowed_models: AllowedModelsConfig::Specific(models.clone()),
-                rate_limit_rpm: 60,
+                rate_limit_rpm: options.rate_limit_rpm,
                 rate_limit_tpm: None,
                 monthly_token_limit: None,
             })
@@ -155,7 +231,11 @@ impl TestGateway {
                 listen: "127.0.0.1:0".to_owned(),
                 ..ServerConfig::default()
             },
-            routing: RoutingConfig::default(),
+            routing: RoutingConfig {
+                strategy: options.routing_strategy,
+                cache_aware: options.cache_aware,
+                ..RoutingConfig::default()
+            },
             health: HealthConfig::default(),
             logging: LoggingConfig::default(),
             clients,
@@ -165,7 +245,6 @@ impl TestGateway {
         let runtime =
             mb_server::bootstrap::into_runtime(config).expect("test config should be valid");
 
-        // Build backend metadata lookup
         let backends_by_id: HashMap<_, _> = runtime
             .backends
             .iter()
@@ -180,11 +259,14 @@ impl TestGateway {
             })
             .collect();
 
-        // Mark all backends as healthy (skip real health probing)
         let mut backend_state_map = HashMap::new();
         for b in &runtime.backends {
-            let state = BackendState::new(b.id.clone(), b.models.clone(), b.max_concurrent)
-                .with_healthy(LatencyMs::new(10));
+            let state = BackendState::new(b.id.clone(), b.models.clone(), b.max_concurrent);
+            let state = if options.mark_healthy {
+                state.with_healthy(LatencyMs::new(10))
+            } else {
+                state
+            };
             backend_state_map.insert(b.id.clone(), state);
         }
         let backend_states = Arc::new(RwLock::new(backend_state_map));
@@ -209,11 +291,14 @@ impl TestGateway {
             backends_by_id,
         });
 
+        let handler = if options.enable_stream_dispatch {
+            post(dispatch_handler)
+        } else {
+            post(mb_server::handler::handle_completion)
+        };
+
         let app = axum::Router::new()
-            .route(
-                "/v1/chat/completions",
-                post(mb_server::handler::handle_completion),
-            )
+            .route("/v1/chat/completions", handler)
             .with_state(state);
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -251,8 +336,12 @@ pub const TEST_CLIENT_ID: &str = "test-client";
 pub const TEST_MODEL: &str = "llama3-70b";
 
 pub fn sample_openai_response() -> String {
+    sample_openai_response_with_id("chatcmpl-test123")
+}
+
+pub fn sample_openai_response_with_id(id: &str) -> String {
     serde_json::json!({
-        "id": "chatcmpl-test123",
+        "id": id,
         "object": "chat.completion",
         "created": 1700000000,
         "model": TEST_MODEL,
@@ -284,4 +373,55 @@ pub fn sample_request_body() -> String {
         ]
     })
     .to_string()
+}
+
+pub fn sample_stream_request_body() -> String {
+    serde_json::json!({
+        "model": TEST_MODEL,
+        "messages": [
+            {
+                "role": "user",
+                "content": "Hello"
+            }
+        ],
+        "stream": true
+    })
+    .to_string()
+}
+
+pub fn sample_sse_chunks() -> Vec<String> {
+    vec![
+        serde_json::json!({
+            "id": "chatcmpl-stream",
+            "object": "chat.completion.chunk",
+            "created": 1700000000,
+            "model": TEST_MODEL,
+            "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": null}]
+        })
+        .to_string(),
+        serde_json::json!({
+            "id": "chatcmpl-stream",
+            "object": "chat.completion.chunk",
+            "created": 1700000000,
+            "model": TEST_MODEL,
+            "choices": [{"index": 0, "delta": {"content": "Hello"}, "finish_reason": null}]
+        })
+        .to_string(),
+        serde_json::json!({
+            "id": "chatcmpl-stream",
+            "object": "chat.completion.chunk",
+            "created": 1700000000,
+            "model": TEST_MODEL,
+            "choices": [{"index": 0, "delta": {"content": " world"}, "finish_reason": null}]
+        })
+        .to_string(),
+        serde_json::json!({
+            "id": "chatcmpl-stream",
+            "object": "chat.completion.chunk",
+            "created": 1700000000,
+            "model": TEST_MODEL,
+            "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]
+        })
+        .to_string(),
+    ]
 }
