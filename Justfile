@@ -20,5 +20,8 @@ fmt:
 fmt-check:
 	cargo fmt --all -- --check
 
+# Alias for lint (used by CSA commit workflow)
+clippy: lint
+
 # Run full pre-commit checks
 pre-commit: fmt-check lint test

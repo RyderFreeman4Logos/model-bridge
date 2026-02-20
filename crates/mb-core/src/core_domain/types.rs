@@ -115,11 +115,13 @@ impl PartialEq for ApiKey {
     fn eq(&self, other: &Self) -> bool {
         let a = self.0.as_bytes();
         let b = other.0.as_bytes();
-        let len_diff = (a.len() != b.len()) as u8;
-        let result = a
-            .iter()
-            .zip(b.iter())
-            .fold(len_diff, |acc, (x, y)| acc | (x ^ y));
+        let max_len = a.len().max(b.len());
+        let mut result = (a.len() != b.len()) as u8;
+        for i in 0..max_len {
+            let x = if i < a.len() { a[i] } else { 0 };
+            let y = if i < b.len() { b[i] } else { 0 };
+            result |= x ^ y;
+        }
         result == 0
     }
 }
