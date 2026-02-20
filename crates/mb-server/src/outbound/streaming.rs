@@ -137,7 +137,7 @@ mod tests {
     fn collect_lines(parser: &mut SseLineParser<MockByteStream>) -> Vec<String> {
         let mut results = Vec::new();
         let waker = Waker::noop();
-        let mut cx = Context::from_waker(&waker);
+        let mut cx = Context::from_waker(waker);
 
         loop {
             match Pin::new(&mut *parser).poll_next(&mut cx) {
