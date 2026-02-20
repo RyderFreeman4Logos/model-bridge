@@ -36,7 +36,7 @@ string_newtype!(RequestId);
 // PrefixHash — session prefix hash for cache-aware routing
 // ---------------------------------------------------------------------------
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct PrefixHash(u64);
 
 impl PrefixHash {
