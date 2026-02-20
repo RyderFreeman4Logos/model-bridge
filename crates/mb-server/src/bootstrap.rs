@@ -35,6 +35,8 @@ pub struct RuntimeConfig {
     pub listen_addr: String,
     pub log_level: String,
     pub log_format: String,
+    /// Per-client rate limit (RPM) for lazy RateLimiter creation.
+    pub client_rate_limits: std::collections::HashMap<ClientId, u32>,
 }
 
 // ---------------------------------------------------------------------------
@@ -92,6 +94,10 @@ pub fn into_runtime(config: AppConfig) -> Result<RuntimeConfig, anyhow::Error> {
         })
         .collect();
 
+    let client_rate_limits: std::collections::HashMap<ClientId, u32> = client_entries
+        .iter()
+        .map(|(_, info)| (info.id.clone(), info.rate_limit.requests_per_minute))
+        .collect();
     let auth_service = AuthService::new(client_entries);
 
     // Convert backends → Vec<BackendInfo>
@@ -134,6 +140,7 @@ pub fn into_runtime(config: AppConfig) -> Result<RuntimeConfig, anyhow::Error> {
         listen_addr: config.server.listen,
         log_level: config.logging.level,
         log_format: config.logging.format,
+        client_rate_limits,
     })
 }
 
