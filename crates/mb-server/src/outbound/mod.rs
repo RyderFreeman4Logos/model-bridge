@@ -1,5 +1,6 @@
 pub mod ollama;
 pub mod openai_chat;
+pub mod streaming;
 
 use mb_core::core::{BackendSpec, OutboundAdapter};
 
