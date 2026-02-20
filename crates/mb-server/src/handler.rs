@@ -240,7 +240,7 @@ async fn handle_completion_inner(
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn extract_api_key(headers: &HeaderMap) -> Result<ApiKey, GatewayError> {
+pub(crate) fn extract_api_key(headers: &HeaderMap) -> Result<ApiKey, GatewayError> {
     let auth_header = headers
         .get("authorization")
         .and_then(|v| v.to_str().ok())
@@ -253,14 +253,14 @@ fn extract_api_key(headers: &HeaderMap) -> Result<ApiKey, GatewayError> {
     Ok(ApiKey::new(token))
 }
 
-fn now_ms() -> u64 {
+pub(crate) fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64
 }
 
-fn current_year_month() -> YearMonth {
+pub(crate) fn current_year_month() -> YearMonth {
     let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()

@@ -4,3 +4,4 @@ pub mod handler;
 pub mod health;
 pub mod inbound;
 pub mod outbound;
+pub mod stream_handler;
