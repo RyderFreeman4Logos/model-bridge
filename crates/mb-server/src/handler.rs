@@ -37,6 +37,8 @@ pub struct AppState {
     pub round_counter: AtomicUsize,
     pub rate_limit_rpm: HashMap<ClientId, u32>,
     pub backends_by_id: HashMap<BackendId, BackendMeta>,
+    #[cfg(feature = "feedback")]
+    pub feedback: Option<crate::feedback::FeedbackState>,
 }
 
 /// Metadata needed to dispatch requests to a backend.
@@ -221,6 +223,17 @@ async fn handle_completion_inner(
             let mut map = state.affinity_map.write().await;
             map.record(&canonical_req.model, *prefix, &selected_id);
         }
+    }
+
+    #[cfg(feature = "feedback")]
+    if let Some(feedback_state) = state.feedback.as_ref() {
+        crate::feedback::record_chat_turns(
+            feedback_state,
+            headers,
+            &canonical_req,
+            &canonical_resp,
+        )
+        .await;
     }
 
     // 16. Format response via inbound adapter

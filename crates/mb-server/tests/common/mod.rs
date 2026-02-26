@@ -289,6 +289,8 @@ impl TestGateway {
             round_counter: AtomicUsize::new(0),
             rate_limit_rpm: runtime.client_rate_limits,
             backends_by_id,
+            #[cfg(feature = "feedback")]
+            feedback: None,
         });
 
         let handler = if options.enable_stream_dispatch {

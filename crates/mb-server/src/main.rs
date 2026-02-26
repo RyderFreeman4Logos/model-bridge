@@ -136,6 +136,9 @@ async fn run_gateway(config_path: PathBuf) {
     );
 
     // Build AppState
+    #[cfg(feature = "feedback")]
+    let feedback = init_feedback_state().await;
+
     let state = Arc::new(AppState {
         auth: runtime.auth_service,
         inbound_registry: InboundAdapterRegistry::new(),
@@ -154,6 +157,8 @@ async fn run_gateway(config_path: PathBuf) {
         round_counter: AtomicUsize::new(0),
         rate_limit_rpm,
         backends_by_id,
+        #[cfg(feature = "feedback")]
+        feedback,
     });
 
     // Build axum router
@@ -169,8 +174,17 @@ async fn run_gateway(config_path: PathBuf) {
                 let states = backend_states;
                 move || health::health_handler(states)
             }),
-        )
-        .with_state(state);
+        );
+
+    #[cfg(feature = "feedback")]
+    let app = app
+        .route("/v1/feedback", post(mb_server::feedback::post_feedback))
+        .route(
+            "/v1/my-annotations",
+            get(mb_server::feedback::get_my_annotations),
+        );
+
+    let app = app.with_state(state);
 
     // Start server
     let listener = tokio::net::TcpListener::bind(&runtime.listen_addr)
@@ -184,6 +198,46 @@ async fn run_gateway(config_path: PathBuf) {
         .expect("server error");
 
     tracing::info!("Gateway shut down");
+}
+
+#[cfg(feature = "feedback")]
+async fn init_feedback_state() -> Option<mb_server::feedback::FeedbackState> {
+    let db_path =
+        std::env::var("MB_FEEDBACK_DB_PATH").unwrap_or_else(|_| "feedback.sqlite".to_owned());
+    let db_path_for_task = db_path.clone();
+
+    let init_result = tokio::task::spawn_blocking(move || {
+        let sqlite_store =
+            mb_feedback::SqliteFeedbackStore::new(std::path::Path::new(&db_path_for_task))
+                .map_err(|err| err.to_string())?;
+        mb_feedback::FeedbackStore::init(&sqlite_store).map_err(|err| err.to_string())?;
+        let store: Arc<dyn mb_feedback::FeedbackStore> = Arc::new(sqlite_store);
+        Ok::<Arc<dyn mb_feedback::FeedbackStore>, String>(store)
+    })
+    .await;
+
+    match init_result {
+        Ok(Ok(store)) => {
+            tracing::info!("feedback store initialized at {}", db_path);
+            Some(mb_server::feedback::FeedbackState { store })
+        }
+        Ok(Err(err)) => {
+            tracing::warn!(
+                error = %err,
+                db_path = %db_path,
+                "failed to initialize feedback store; feedback logging disabled"
+            );
+            None
+        }
+        Err(err) => {
+            tracing::warn!(
+                error = %err,
+                db_path = %db_path,
+                "feedback initialization task failed; feedback logging disabled"
+            );
+            None
+        }
+    }
 }
 
 fn init_tracing(level: &str, format: &str) {
