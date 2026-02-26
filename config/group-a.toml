@@ -1,0 +1,72 @@
+# ============================================================================
+# model-bridge gateway configuration — Group A (internal testing)
+# ============================================================================
+# Internal testing group for researcher evaluation:
+# - qwen3-8b-heretic (Heretic-only)
+# - qwen3:8b (official baseline)
+# Validate with: mb validate --config config/group-a.toml
+
+# ----------------------------------------------------------------------------
+# Server
+# ----------------------------------------------------------------------------
+[server]
+listen = "0.0.0.0:8080"
+# tls_cert = "/etc/mb/cert.pem"
+# tls_key  = "/etc/mb/key.pem"
+
+# ----------------------------------------------------------------------------
+# Routing
+# ----------------------------------------------------------------------------
+[routing]
+strategy = "least-loaded"     # "least-loaded" | "round-robin"
+cache_aware = true            # enable prefix-hash affinity routing
+prefix_depth = 3              # number of leading messages to hash
+max_affinity_entries = 10000  # LRU eviction threshold
+
+# ----------------------------------------------------------------------------
+# Health checks
+# ----------------------------------------------------------------------------
+[health]
+check_interval_secs = 30
+timeout_ms = 5000
+unhealthy_threshold = 3       # consecutive failures before marking unhealthy
+degraded_latency_ms = 2000    # latency above this marks backend as degraded
+
+# ----------------------------------------------------------------------------
+# Logging
+# ----------------------------------------------------------------------------
+[logging]
+level = "info"                # "trace" | "debug" | "info" | "warn" | "error"
+format = "json"               # "json" | "pretty"
+
+# ----------------------------------------------------------------------------
+# Clients
+# ----------------------------------------------------------------------------
+# Internal researcher key (placeholder; replace before production use).
+
+[[clients]]
+id = "internal-researcher"
+api_key = "mb-sk-groupainternalplaceholderkey000001"
+allowed_models = ["qwen3-8b-heretic", "qwen3:8b"]
+rate_limit_rpm = 120
+# rate_limit_tpm = 100000
+# monthly_token_limit = 10000000
+
+# ----------------------------------------------------------------------------
+# Backends
+# ----------------------------------------------------------------------------
+# Group A uses local Ollama server.
+
+[[backends]]
+id = "group-a-heretic"
+base_url = "http://localhost:11434"
+spec = "ollama"
+models = ["qwen3-8b-heretic"]
+max_concurrent = 8
+
+[[backends]]
+id = "group-a-baseline"
+base_url = "http://localhost:11434"
+spec = "ollama"
+models = ["qwen3:8b"]
+max_concurrent = 8

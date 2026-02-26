@@ -1,0 +1,85 @@
+# ============================================================================
+# model-bridge gateway configuration — Group B (user annotation)
+# ============================================================================
+# Annotation group for mb-feedback users (investors/customers):
+# - qwen3-8b-ultimate (Heretic + SimPO v2)
+# - qwen3:8b (official baseline)
+# Validate with: mb validate --config config/group-b.toml
+
+# Feedback storage note:
+# This project enables feedback logging via runtime env var + feature flag.
+# Run with feature `feedback` and set:
+# MB_FEEDBACK_DB_PATH=/var/lib/model-bridge/group-b-feedback.sqlite
+
+# ----------------------------------------------------------------------------
+# Server
+# ----------------------------------------------------------------------------
+[server]
+listen = "0.0.0.0:8081"
+# tls_cert = "/etc/mb/cert.pem"
+# tls_key  = "/etc/mb/key.pem"
+
+# ----------------------------------------------------------------------------
+# Routing
+# ----------------------------------------------------------------------------
+[routing]
+strategy = "least-loaded"     # "least-loaded" | "round-robin"
+cache_aware = true            # enable prefix-hash affinity routing
+prefix_depth = 3              # number of leading messages to hash
+max_affinity_entries = 10000  # LRU eviction threshold
+
+# ----------------------------------------------------------------------------
+# Health checks
+# ----------------------------------------------------------------------------
+[health]
+check_interval_secs = 30
+timeout_ms = 5000
+unhealthy_threshold = 3       # consecutive failures before marking unhealthy
+degraded_latency_ms = 2000    # latency above this marks backend as degraded
+
+# ----------------------------------------------------------------------------
+# Logging
+# ----------------------------------------------------------------------------
+[logging]
+level = "info"                # "trace" | "debug" | "info" | "warn" | "error"
+format = "json"               # "json" | "pretty"
+
+# ----------------------------------------------------------------------------
+# Clients
+# ----------------------------------------------------------------------------
+# Placeholder API keys for annotation users; replace with real issued keys.
+
+[[clients]]
+id = "annotation-user-01"
+api_key = "mb-sk-groupbannotationplaceholder000001"
+allowed_models = ["qwen3-8b-ultimate", "qwen3:8b"]
+rate_limit_rpm = 60
+# rate_limit_tpm = 100000
+# monthly_token_limit = 10000000
+
+[[clients]]
+id = "annotation-user-02"
+api_key = "mb-sk-groupbannotationplaceholder000002"
+allowed_models = ["qwen3-8b-ultimate", "qwen3:8b"]
+rate_limit_rpm = 60
+# rate_limit_tpm = 100000
+# monthly_token_limit = 10000000
+
+# ----------------------------------------------------------------------------
+# Backends
+# ----------------------------------------------------------------------------
+# Group B uses remote Ollama server over Tailscale.
+
+[[backends]]
+id = "group-b-ultimate"
+base_url = "http://lee-linux.tail3db97d.ts.net:11434"
+spec = "ollama"
+models = ["qwen3-8b-ultimate"]
+max_concurrent = 8
+
+[[backends]]
+id = "group-b-baseline"
+base_url = "http://lee-linux.tail3db97d.ts.net:11434"
+spec = "ollama"
+models = ["qwen3:8b"]
+max_concurrent = 8
