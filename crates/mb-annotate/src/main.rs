@@ -103,7 +103,10 @@ async fn maybe_annotate_turn(
                 return;
             }
             Err(err) => {
-                eprintln!("{}", format!("Error: failed to read annotation: {err}").red());
+                eprintln!(
+                    "{}",
+                    format!("Error: failed to read annotation: {err}").red()
+                );
                 return;
             }
         };
@@ -117,7 +120,10 @@ async fn maybe_annotate_turn(
             "b" => break "biased".to_owned(),
             "r" => break "refused".to_owned(),
             _ => {
-                eprintln!("{}", "Please enter s, b, r, or press Enter to skip.".yellow());
+                eprintln!(
+                    "{}",
+                    "Please enter s, b, r, or press Enter to skip.".yellow()
+                );
             }
         }
     };
@@ -174,10 +180,16 @@ async fn maybe_annotate_turn(
             let message = serde_json::from_str::<ErrorEnvelope>(&body)
                 .map(|v| v.error.message)
                 .unwrap_or_else(|_| body);
-            eprintln!("{}", format!("Error: failed to save annotation ({status}): {message}").red());
+            eprintln!(
+                "{}",
+                format!("Error: failed to save annotation ({status}): {message}").red()
+            );
         }
         Err(err) => {
-            eprintln!("{}", format!("Error: failed to save annotation: {err}").red());
+            eprintln!(
+                "{}",
+                format!("Error: failed to save annotation: {err}").red()
+            );
         }
     }
 }

@@ -12,7 +12,9 @@ use axum::Json;
 #[cfg(feature = "feedback")]
 use chrono::Utc;
 #[cfg(feature = "feedback")]
-use mb_core::core::{ApiKey, CanonicalRequest, CanonicalResponse, ContentPart, MessageContent, Role};
+use mb_core::core::{
+    ApiKey, CanonicalRequest, CanonicalResponse, ContentPart, MessageContent, Role,
+};
 #[cfg(feature = "feedback")]
 use serde::Deserialize;
 #[cfg(feature = "feedback")]
@@ -48,10 +50,12 @@ pub async fn post_feedback(
     headers: HeaderMap,
     Json(body): Json<FeedbackRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
-    let feedback_state = state
-        .feedback
-        .as_ref()
-        .ok_or_else(|| json_error(StatusCode::INTERNAL_SERVER_ERROR, "feedback store unavailable"))?;
+    let feedback_state = state.feedback.as_ref().ok_or_else(|| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "feedback store unavailable",
+        )
+    })?;
 
     let api_key = extract_feedback_api_key(&headers)?;
     let client_info = state
@@ -131,10 +135,12 @@ pub async fn get_my_annotations(
     headers: HeaderMap,
     Query(query): Query<MyAnnotationsQuery>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
-    let feedback_state = state
-        .feedback
-        .as_ref()
-        .ok_or_else(|| json_error(StatusCode::INTERNAL_SERVER_ERROR, "feedback store unavailable"))?;
+    let feedback_state = state.feedback.as_ref().ok_or_else(|| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "feedback store unavailable",
+        )
+    })?;
 
     let api_key = extract_feedback_api_key(&headers)?;
     let client_info = state
@@ -189,20 +195,22 @@ pub async fn get_my_annotations(
     let annotations = {
         let store = Arc::clone(&feedback_state.store);
         let annotator_id_for_query = annotator_id;
-        tokio::task::spawn_blocking(move || store.get_annotations_by_annotator(&annotator_id_for_query))
-            .await
-            .map_err(|err| {
-                json_error(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("failed to join get annotations task: {err}"),
-                )
-            })?
-            .map_err(|err| {
-                json_error(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("failed to get annotations: {err}"),
-                )
-            })?
+        tokio::task::spawn_blocking(move || {
+            store.get_annotations_by_annotator(&annotator_id_for_query)
+        })
+        .await
+        .map_err(|err| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("failed to join get annotations task: {err}"),
+            )
+        })?
+        .map_err(|err| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("failed to get annotations: {err}"),
+            )
+        })?
     };
 
     let total = annotations.len();
@@ -370,7 +378,10 @@ fn estimate_token_count(text: &str) -> u32 {
 fn extract_feedback_api_key(
     headers: &HeaderMap,
 ) -> Result<ApiKey, (StatusCode, Json<serde_json::Value>)> {
-    if let Some(raw) = headers.get("x-api-key").and_then(|value| value.to_str().ok()) {
+    if let Some(raw) = headers
+        .get("x-api-key")
+        .and_then(|value| value.to_str().ok())
+    {
         return Ok(ApiKey::new(raw));
     }
 

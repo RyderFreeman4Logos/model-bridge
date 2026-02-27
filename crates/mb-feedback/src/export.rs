@@ -42,13 +42,13 @@ pub fn export_dpo_pairs(
         }
 
         if let Some(since) = filter.since.as_ref() {
-            if annotation.created_at < since.clone() {
+            if annotation.created_at < *since {
                 continue;
             }
         }
 
         if let Some(until) = filter.until.as_ref() {
-            if annotation.created_at > until.clone() {
+            if annotation.created_at > *until {
                 continue;
             }
         }
