@@ -21,12 +21,9 @@ pub struct HttpHealthProbe {
 }
 
 impl HttpHealthProbe {
-    pub fn new(timeout: Duration) -> Self {
-        let client = reqwest::Client::builder()
-            .timeout(timeout)
-            .build()
-            .expect("failed to build reqwest client");
-        Self { client, timeout }
+    pub fn new(timeout: Duration) -> Result<Self, reqwest::Error> {
+        let client = reqwest::Client::builder().timeout(timeout).build()?;
+        Ok(Self { client, timeout })
     }
 }
 

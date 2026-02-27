@@ -4,6 +4,10 @@ use std::task::{Context, Poll};
 use bytes::Bytes;
 use futures_core::Stream;
 
+/// Maximum SSE buffer size (1 MB). If the buffer exceeds this limit,
+/// it is cleared to prevent unbounded memory growth from malformed streams.
+const MAX_SSE_BUFFER_SIZE: usize = 1_048_576;
+
 /// Reassembles raw byte chunks into complete SSE data lines.
 ///
 /// Wraps an inner byte stream and yields complete `data: ` payloads
@@ -40,6 +44,16 @@ where
             // Need more data from the inner stream.
             match this.inner.as_mut().poll_next(cx) {
                 Poll::Ready(Some(Ok(bytes))) => {
+                    // Guard against unbounded buffer growth.
+                    if this.buffer.len().saturating_add(bytes.len()) > MAX_SSE_BUFFER_SIZE {
+                        tracing::warn!(
+                            buffer_len = this.buffer.len(),
+                            chunk_len = bytes.len(),
+                            "SSE buffer exceeded size limit, clearing"
+                        );
+                        this.buffer.clear();
+                        continue;
+                    }
                     // Append valid UTF-8 from the chunk, skip malformed bytes.
                     match std::str::from_utf8(&bytes) {
                         Ok(s) => this.buffer.push_str(s),

@@ -4,6 +4,7 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use std::time::Duration;
 
+use axum::extract::DefaultBodyLimit;
 use axum::routing::{get, post};
 use clap::{Parser, Subcommand};
 use tokio::sync::RwLock;
@@ -114,6 +115,7 @@ async fn run_gateway(config_path: PathBuf) {
                 BackendMeta {
                     base_url: b.base_url.clone(),
                     spec: b.spec,
+                    api_key: runtime.backend_api_keys.get(&b.id).cloned(),
                 },
             )
         })
@@ -124,9 +126,10 @@ async fn run_gateway(config_path: PathBuf) {
     let backend_states = health_manager.shared_states();
 
     // Start background health checks
-    let probe = Arc::new(HttpHealthProbe::new(Duration::from_millis(
-        runtime.health_timeout_ms,
-    )));
+    let probe = Arc::new(
+        HttpHealthProbe::new(Duration::from_millis(runtime.health_timeout_ms))
+            .expect("failed to build health probe HTTP client"),
+    );
     let _health_handle = health_manager.start_background_checks(
         runtime.backends.clone(),
         Duration::from_secs(runtime.health_check_interval_secs),
@@ -147,7 +150,10 @@ async fn run_gateway(config_path: PathBuf) {
         rate_limiters: RwLock::new(HashMap::new()),
         quota_tracker: RwLock::new(QuotaTracker::new()),
         affinity_map: RwLock::new(CacheAffinityMap::new(runtime.cache_config.max_entries)),
-        http_client: reqwest::Client::new(),
+        http_client: reqwest::Client::builder()
+            .timeout(Duration::from_secs(30))
+            .build()
+            .expect("failed to build HTTP client"),
         routing_strategy: runtime.routing_strategy,
         cache_config: CacheConfig {
             enabled: runtime.cache_config.enabled,
@@ -184,7 +190,9 @@ async fn run_gateway(config_path: PathBuf) {
             get(mb_server::feedback::get_my_annotations),
         );
 
-    let app = app.with_state(state);
+    let app = app
+        .layer(DefaultBodyLimit::max(2 * 1024 * 1024))
+        .with_state(state);
 
     // Start server
     let listener = tokio::net::TcpListener::bind(&runtime.listen_addr)

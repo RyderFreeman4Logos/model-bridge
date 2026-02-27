@@ -8,6 +8,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use tokio::sync::RwLock;
 
+use chrono::Datelike;
 use mb_core::core::{
     AdapterError, ApiKey, ApiSpec, AuthError, AuthService, BackendId, BackendSpec,
     CacheAffinityMap, ClientId, GatewayError, QuotaTracker, RateLimiter, RoutingError,
@@ -45,6 +46,7 @@ pub struct AppState {
 pub struct BackendMeta {
     pub base_url: String,
     pub spec: BackendSpec,
+    pub api_key: Option<ApiKey>,
 }
 
 // ---------------------------------------------------------------------------
@@ -185,6 +187,9 @@ async fn handle_completion_inner(
     };
 
     let mut req_builder = state.http_client.post(&url).body(request_body);
+    if let Some(ref key) = backend_meta.api_key {
+        req_builder = req_builder.header("Authorization", format!("Bearer {}", key.as_str()));
+    }
     for (k, v) in outbound.extra_headers(&backend_info) {
         req_builder = req_builder.header(k, v);
     }
@@ -274,14 +279,8 @@ pub(crate) fn now_ms() -> u64 {
 }
 
 pub(crate) fn current_year_month() -> YearMonth {
-    let secs = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-    let days = secs / 86400;
-    let year = 1970 + (days / 365) as u16;
-    let month = ((days % 365) / 30 + 1).min(12) as u8;
-    YearMonth::new(year, month)
+    let now = chrono::Utc::now();
+    YearMonth::new(now.year() as u16, now.month() as u8)
 }
 
 // ---------------------------------------------------------------------------

@@ -29,7 +29,9 @@ impl OutboundAdapter for OllamaOutboundAdapter {
             "stream": req.stream,
         });
 
-        let obj = body.as_object_mut().expect("just created as object");
+        let obj = body.as_object_mut().ok_or_else(|| {
+            AdapterError::FormatResponse("internal: expected JSON object".to_owned())
+        })?;
 
         // Ollama uses an "options" sub-object for generation parameters.
         let mut options = serde_json::Map::new();
@@ -70,20 +72,12 @@ impl OutboundAdapter for OllamaOutboundAdapter {
         let content = resp.message.content.unwrap_or_default();
         let role = parse_role(&resp.message.role)?;
 
-        let usage = match resp.usage {
-            Some(u) => TokenUsage {
-                prompt_tokens: u.prompt_eval_count.unwrap_or(0),
-                completion_tokens: u.eval_count.unwrap_or(0),
-                total_tokens: u
-                    .prompt_eval_count
-                    .unwrap_or(0)
-                    .saturating_add(u.eval_count.unwrap_or(0)),
-            },
-            None => TokenUsage {
-                prompt_tokens: 0,
-                completion_tokens: 0,
-                total_tokens: 0,
-            },
+        let prompt_tokens = resp.usage.prompt_eval_count.unwrap_or(0);
+        let completion_tokens = resp.usage.eval_count.unwrap_or(0);
+        let usage = TokenUsage {
+            prompt_tokens,
+            completion_tokens,
+            total_tokens: prompt_tokens.saturating_add(completion_tokens),
         };
 
         Ok(CanonicalResponse {
@@ -159,7 +153,7 @@ struct OllamaResponseWire {
     message: OllamaMessageWire,
     done: Option<bool>,
     #[serde(flatten)]
-    usage: Option<OllamaUsageWire>,
+    usage: OllamaUsageWire,
 }
 
 #[derive(serde::Deserialize)]

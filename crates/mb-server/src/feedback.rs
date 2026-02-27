@@ -190,7 +190,7 @@ pub async fn get_my_annotations(
     }
 
     let page = query.page.unwrap_or(1).max(1);
-    let per_page = query.per_page.unwrap_or(50).max(1);
+    let per_page = query.per_page.unwrap_or(50).clamp(1, 100);
 
     let annotations = {
         let store = Arc::clone(&feedback_state.store);

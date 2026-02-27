@@ -129,15 +129,9 @@ fn test_format_stream_chunk_text() {
     };
 
     let result = adapter.format_stream_chunk(&chunk).unwrap().unwrap();
-    assert!(result.starts_with("data: "));
-    assert!(result.ends_with("\n\n"));
-
-    let json_str = result
-        .strip_prefix("data: ")
-        .unwrap()
-        .strip_suffix("\n\n")
-        .unwrap();
-    let json: Value = serde_json::from_str(json_str).unwrap();
+    // format_stream_chunk returns raw JSON without SSE framing;
+    // the stream_handler adds "data: " prefix and trailing newlines.
+    let json: Value = serde_json::from_str(&result).unwrap();
 
     assert_eq!(json["object"], "chat.completion.chunk");
     assert_eq!(json["choices"][0]["index"], 0);
@@ -156,12 +150,7 @@ fn test_format_stream_chunk_finish() {
     };
 
     let result = adapter.format_stream_chunk(&chunk).unwrap().unwrap();
-    let json_str = result
-        .strip_prefix("data: ")
-        .unwrap()
-        .strip_suffix("\n\n")
-        .unwrap();
-    let json: Value = serde_json::from_str(json_str).unwrap();
+    let json: Value = serde_json::from_str(&result).unwrap();
 
     assert_eq!(json["choices"][0]["finish_reason"], "stop");
 }
@@ -209,7 +198,7 @@ fn test_parse_request_unknown_role() {
 #[test]
 fn test_done_sentinel() {
     let adapter = OpenAiChatInboundAdapter;
-    assert_eq!(adapter.done_sentinel(), "data: [DONE]");
+    assert_eq!(adapter.done_sentinel(), "[DONE]");
 }
 
 #[test]

@@ -6,11 +6,11 @@ build:
 
 # Run all tests
 test:
-	cargo test --workspace
+	cargo nextest run --workspace
 
 # Run clippy lint checks
 lint:
-	cargo clippy --workspace --all-targets
+	cargo clippy --workspace --all-targets -- -D warnings
 
 # Format all code
 fmt:

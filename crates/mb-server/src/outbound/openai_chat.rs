@@ -36,7 +36,9 @@ impl OutboundAdapter for OpenAiChatOutboundAdapter {
             "stream": req.stream,
         });
 
-        let obj = body.as_object_mut().expect("just created as object");
+        let obj = body.as_object_mut().ok_or_else(|| {
+            AdapterError::FormatResponse("internal: expected JSON object".to_owned())
+        })?;
         if let Some(t) = req.params.temperature {
             obj.insert("temperature".into(), t.into());
         }

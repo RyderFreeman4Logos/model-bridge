@@ -156,11 +156,11 @@ impl InboundAdapter for OpenAiChatInboundAdapter {
         let json = serde_json::to_string(&stream_chunk)
             .map_err(|e| AdapterError::FormatResponse(e.to_string()))?;
 
-        Ok(Some(format!("data: {json}\n\n")))
+        Ok(Some(json))
     }
 
     fn done_sentinel(&self) -> &str {
-        "data: [DONE]"
+        "[DONE]"
     }
 }
 

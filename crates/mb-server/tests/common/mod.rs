@@ -254,6 +254,7 @@ impl TestGateway {
                     BackendMeta {
                         base_url: b.base_url.clone(),
                         spec: b.spec,
+                        api_key: None,
                     },
                 )
             })

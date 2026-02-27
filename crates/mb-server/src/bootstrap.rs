@@ -37,6 +37,8 @@ pub struct RuntimeConfig {
     pub log_format: String,
     /// Per-client rate limit (RPM) for lazy RateLimiter creation.
     pub client_rate_limits: std::collections::HashMap<ClientId, u32>,
+    /// Per-backend API keys for authenticating outbound requests.
+    pub backend_api_keys: std::collections::HashMap<BackendId, ApiKey>,
 }
 
 // ---------------------------------------------------------------------------
@@ -100,19 +102,26 @@ pub fn into_runtime(config: AppConfig) -> Result<RuntimeConfig, anyhow::Error> {
         .collect();
     let auth_service = AuthService::new(client_entries);
 
-    // Convert backends → Vec<BackendInfo>
+    // Convert backends → Vec<BackendInfo> and extract API keys
+    let mut backend_api_keys = std::collections::HashMap::new();
     let backends: Vec<BackendInfo> = config
         .backends
         .into_iter()
-        .map(|b| BackendInfo {
-            id: BackendId::new(b.id),
-            spec: match b.spec {
-                BackendSpecConfig::OpenaiChat => BackendSpec::OpenAiChat,
-                BackendSpecConfig::Ollama => BackendSpec::Ollama,
-            },
-            models: b.models.into_iter().map(ModelId::new).collect(),
-            max_concurrent: b.max_concurrent,
-            base_url: b.base_url,
+        .map(|b| {
+            let id = BackendId::new(b.id);
+            if let Some(key) = b.api_key {
+                backend_api_keys.insert(id.clone(), ApiKey::new(key));
+            }
+            BackendInfo {
+                id,
+                spec: match b.spec {
+                    BackendSpecConfig::OpenaiChat => BackendSpec::OpenAiChat,
+                    BackendSpecConfig::Ollama => BackendSpec::Ollama,
+                },
+                models: b.models.into_iter().map(ModelId::new).collect(),
+                max_concurrent: b.max_concurrent,
+                base_url: b.base_url,
+            }
         })
         .collect();
 
@@ -141,6 +150,7 @@ pub fn into_runtime(config: AppConfig) -> Result<RuntimeConfig, anyhow::Error> {
         log_level: config.logging.level,
         log_format: config.logging.format,
         client_rate_limits,
+        backend_api_keys,
     })
 }
 

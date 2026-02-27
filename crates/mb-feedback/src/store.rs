@@ -48,6 +48,11 @@ CREATE TABLE IF NOT EXISTS cla_records (
 );
 "#;
 
+/// Maximum allowed length for stored content fields (64 KB).
+const MAX_CONTENT_LEN: usize = 65_536;
+/// Maximum allowed length for ID and short string fields (256 bytes).
+const MAX_ID_LEN: usize = 256;
+
 #[derive(Debug, thiserror::Error)]
 pub enum FeedbackError {
     #[error("database error: {0}")]
@@ -56,6 +61,8 @@ pub enum FeedbackError {
     NotFound(String),
     #[error("serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
+    #[error("input too long: {field} exceeds {max} bytes")]
+    InputTooLong { field: &'static str, max: usize },
 }
 
 pub trait FeedbackStore: Send + Sync {
@@ -108,6 +115,13 @@ impl SqliteFeedbackStore {
     }
 }
 
+fn check_len(value: &str, field: &'static str, max: usize) -> Result<(), FeedbackError> {
+    if value.len() > max {
+        return Err(FeedbackError::InputTooLong { field, max });
+    }
+    Ok(())
+}
+
 impl FeedbackStore for SqliteFeedbackStore {
     fn init(&self) -> Result<(), FeedbackError> {
         let conn = self.lock_conn();
@@ -124,6 +138,8 @@ impl FeedbackStore for SqliteFeedbackStore {
     }
 
     fn insert_conversation(&self, conv: &Conversation) -> Result<(), FeedbackError> {
+        check_len(conv.client_id.as_str(), "client_id", MAX_ID_LEN)?;
+        check_len(conv.model_id.as_str(), "model_id", MAX_ID_LEN)?;
         let conn = self.lock_conn();
         conn.execute(
             "INSERT INTO conversations (id, client_id, model_id, created_at) VALUES (?1, ?2, ?3, ?4)",
@@ -138,6 +154,7 @@ impl FeedbackStore for SqliteFeedbackStore {
     }
 
     fn insert_turn(&self, turn: &Turn) -> Result<(), FeedbackError> {
+        check_len(&turn.content, "content", MAX_CONTENT_LEN)?;
         let conn = self.lock_conn();
         conn.execute(
             "INSERT INTO turns (id, conversation_id, role, content, token_count, created_at)
@@ -155,6 +172,13 @@ impl FeedbackStore for SqliteFeedbackStore {
     }
 
     fn insert_annotation(&self, ann: &Annotation) -> Result<(), FeedbackError> {
+        check_len(&ann.annotator_id, "annotator_id", MAX_ID_LEN)?;
+        if let Some(ref dir) = ann.expected_direction {
+            check_len(dir, "expected_direction", MAX_CONTENT_LEN)?;
+        }
+        if let Some(ref resp) = ann.expected_response {
+            check_len(resp, "expected_response", MAX_CONTENT_LEN)?;
+        }
         let conn = self.lock_conn();
         conn.execute(
             "INSERT INTO annotations

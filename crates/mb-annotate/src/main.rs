@@ -13,7 +13,7 @@ struct Args {
     api_base: String,
     #[arg(long, default_value = "")]
     api_key: String,
-    #[arg(long, default_value = "false")]
+    #[arg(long)]
     annotate: bool,
     #[arg(long)]
     model: String,

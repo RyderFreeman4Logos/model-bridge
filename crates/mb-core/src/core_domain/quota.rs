@@ -38,7 +38,9 @@ impl RateLimiter {
 
         if self.timestamps.len() >= self.limit as usize {
             let earliest = self.timestamps.front().copied().unwrap_or(now_ms);
-            let retry_after_ms = (earliest + self.window_ms).saturating_sub(now_ms);
+            let retry_after_ms = earliest
+                .saturating_add(self.window_ms)
+                .saturating_sub(now_ms);
             return Err(RateLimitInfo { retry_after_ms });
         }
 
@@ -100,7 +102,7 @@ impl QuotaTracker {
             .filter(|u| u.period == current_period)
             .map_or(0, |u| u.tokens_used);
 
-        if used + estimated_tokens > limit {
+        if used.saturating_add(estimated_tokens) > limit {
             Err(QuotaInfo { limit, used })
         } else {
             Ok(())
@@ -124,7 +126,7 @@ impl QuotaTracker {
             entry.tokens_used = 0;
         }
 
-        entry.tokens_used += actual_tokens;
+        entry.tokens_used = entry.tokens_used.saturating_add(actual_tokens);
     }
 }
 
