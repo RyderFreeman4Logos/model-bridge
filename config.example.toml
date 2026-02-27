@@ -1,0 +1,78 @@
+# ============================================================================
+# model-bridge gateway configuration
+# ============================================================================
+# Copy this file to config.toml and adjust values for your environment.
+# Validate with: mb validate --config config.toml
+
+# ----------------------------------------------------------------------------
+# Server
+# ----------------------------------------------------------------------------
+[server]
+listen = "0.0.0.0:8080"
+# tls_cert = "/etc/mb/cert.pem"
+# tls_key  = "/etc/mb/key.pem"
+
+# ----------------------------------------------------------------------------
+# Routing
+# ----------------------------------------------------------------------------
+[routing]
+strategy = "least-loaded"     # "least-loaded" | "round-robin"
+cache_aware = true            # enable prefix-hash affinity routing
+prefix_depth = 3              # number of leading messages to hash
+max_affinity_entries = 10000  # LRU eviction threshold
+
+# ----------------------------------------------------------------------------
+# Health checks
+# ----------------------------------------------------------------------------
+[health]
+check_interval_secs = 30
+timeout_ms = 5000
+unhealthy_threshold = 3       # consecutive failures before marking unhealthy
+degraded_latency_ms = 2000    # latency above this marks backend as degraded
+
+# ----------------------------------------------------------------------------
+# Logging
+# ----------------------------------------------------------------------------
+[logging]
+level = "info"                # "trace" | "debug" | "info" | "warn" | "error"
+format = "json"               # "json" | "pretty"
+
+# ----------------------------------------------------------------------------
+# Clients
+# ----------------------------------------------------------------------------
+# Each client authenticates with an API key and has rate / quota limits.
+
+[[clients]]
+id = "team-alpha"
+api_key = "mb-sk-alpha0000000000000000000000"
+allowed_models = ["llama3-70b", "gpt-4"]
+rate_limit_rpm = 60
+# rate_limit_tpm = 100000
+# monthly_token_limit = 10000000
+
+[[clients]]
+id = "team-beta"
+api_key = "mb-sk-beta00000000000000000000000"
+allowed_models = "*"          # wildcard — all models allowed
+rate_limit_rpm = 120
+rate_limit_tpm = 200000
+monthly_token_limit = 50000000
+
+# ----------------------------------------------------------------------------
+# Backends
+# ----------------------------------------------------------------------------
+# Each backend points to an inference server (OpenAI-compatible or Ollama).
+
+[[backends]]
+id = "gpu-desktop"
+base_url = "http://100.64.0.1:8000"
+spec = "openai-chat"
+models = ["llama3-70b", "gpt-4"]
+max_concurrent = 10
+
+[[backends]]
+id = "ollama-local"
+base_url = "http://127.0.0.1:11434"
+spec = "ollama"
+models = ["llama3-70b"]
+max_concurrent = 4

@@ -1,5 +1,10 @@
 [workspace]
-members = ["crates/mb-core", "crates/mb-server"]
+members = [
+    "crates/mb-core",
+    "crates/mb-server",
+    "crates/mb-feedback",
+    "crates/mb-annotate",
+]
 resolver = "2"
 
 [workspace.package]
